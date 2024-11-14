@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'gallery_detail.dart';
 
 class GaleryScreen extends StatefulWidget {
   @override
@@ -19,18 +20,46 @@ class _GaleryScreenState extends State<GaleryScreen> {
 
   Future<void> _fetchGalleryData() async {
     try {
-      final response = await http.get(Uri.parse('http://10.0.2.2/ujikom-master1/public/api/galery'));
+      print('Memulai fetch gallery...');
+      final response = await http.get(
+        Uri.parse('http://10.0.2.2/ujikom-master1/public/api/galery'),
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      print('Status code: ${response.statusCode}');
+      print('Response headers: ${response.headers}');
+      print('Response body raw: ${response.body}');
 
       if (response.statusCode == 200) {
-        setState(() {
-          _galleryItems = json.decode(response.body);
-          _isLoading = false;
-        });
+        final decodedData = json.decode(response.body);
+        print('Decoded data: $decodedData');
+        
+        // Periksa struktur data
+        if (decodedData is List) {
+          setState(() {
+            _galleryItems = decodedData;
+            print('Gallery items count: ${_galleryItems.length}');
+            _isLoading = false;
+          });
+        } else if (decodedData is Map && decodedData.containsKey('data')) {
+          // Jika response dibungkus dalam objek dengan key 'data'
+          setState(() {
+            _galleryItems = decodedData['data'];
+            print('Gallery items count: ${_galleryItems.length}');
+            _isLoading = false;
+          });
+        } else {
+          throw Exception('Format data tidak sesuai');
+        }
       } else {
-        throw Exception('Failed to load gallery');
+        throw Exception('Failed to load gallery: ${response.statusCode}');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Error fetching data: $e');
+      print('Stack trace: $stackTrace');
       setState(() {
         _isLoading = false;
       });
@@ -88,9 +117,17 @@ class _GaleryScreenState extends State<GaleryScreen> {
                           itemCount: _galleryItems.length,
                           itemBuilder: (context, index) {
                             final item = _galleryItems[index];
-                            final title = item['judul_galery'] ?? 'No Title';
-                            final description = item['deskripsi'] ?? 'No Description';
-                            final photos = item['photos'] ?? []; // Ambil data foto
+                            print('Processing gallery item $index: $item');
+                            
+                            final title = item['judul_galery']?.toString() ?? 'Tidak ada judul';
+                            final description = item['deskripsi_galery']?.toString() ?? 'Tidak ada deskripsi';
+                            final galleryId = item['id'];
+                            final photos = item['photos'] as List<dynamic>? ?? [];
+                            
+                            print('Title: $title');
+                            print('Deskripsi: $description');
+                            print('Gallery ID: $galleryId');
+                            print('Photos: $photos');
 
                             return Card(
                               elevation: 4,
@@ -102,7 +139,6 @@ class _GaleryScreenState extends State<GaleryScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // Judul Galeri
                                     Text(
                                       title,
                                       style: TextStyle(
@@ -112,7 +148,6 @@ class _GaleryScreenState extends State<GaleryScreen> {
                                       ),
                                     ),
                                     SizedBox(height: 10),
-                                    // Deskripsi Galeri
                                     Text(
                                       description,
                                       style: TextStyle(
@@ -121,48 +156,67 @@ class _GaleryScreenState extends State<GaleryScreen> {
                                       ),
                                     ),
                                     SizedBox(height: 10),
-                                    // Foto-foto galeri (hanya menampilkan 3 foto pertama)
-                                    Row(
-                                      children: List.generate(
-                                        (photos.length > 3 ? 3 : photos.length),
-                                        (i) {
-                                          final photoUrl = photos[i]['isi_photo'] ?? '';
-                                          return Padding(
-                                            padding: const EdgeInsets.only(right: 8.0),
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(8),
-                                              child: photoUrl.isNotEmpty
-                                                  ? Image.network(
-                                                      photoUrl,
-                                                      width: 80,
-                                                      height: 80,
-                                                      fit: BoxFit.cover,
-                                                    )
-                                                  : Container(
-                                                      width: 80,
-                                                      height: 80,
-                                                      color: Colors.grey[300],
-                                                      child: Center(child: Text('No Image')),
-                                                    ),
+                                    if (photos.isNotEmpty)
+                                      Row(
+                                        children: List.generate(
+                                          (photos.length > 3 ? 3 : photos.length),
+                                          (i) {
+                                            final photoData = photos[i] as Map<String, dynamic>?;
+                                            final photoUrl = photoData?['isi_photo']?.toString() ?? '';
+                                            print('Photo URL $i: $photoUrl');
+                                            return Padding(
+                                              padding: const EdgeInsets.only(right: 8.0),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(8),
+                                                child: photoUrl.isNotEmpty
+                                                    ? Image.network(
+                                                        photoUrl,
+                                                        width: 80,
+                                                        height: 80,
+                                                        fit: BoxFit.cover,
+                                                        errorBuilder: (context, error, stackTrace) {
+                                                          print('Error loading image: $error');
+                                                          return Container(
+                                                            width: 80,
+                                                            height: 80,
+                                                            color: Colors.grey[300],
+                                                            child: Icon(Icons.error),
+                                                          );
+                                                        },
+                                                      )
+                                                    : Container(
+                                                        width: 80,
+                                                        height: 80,
+                                                        color: Colors.grey[300],
+                                                        child: Center(child: Text('No Image')),
+                                                      ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    SizedBox(height: 10),
+                                    if (galleryId != null)
+                                      InkWell(
+                                        onTap: () {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) => GalleryDetailScreen(
+                                                galleryId: galleryId,
+                                                title: title,
+                                              ),
                                             ),
                                           );
                                         },
-                                      ),
-                                    ),
-                                    SizedBox(height: 10),
-                                    // Link untuk melihat foto lainnya
-                                    InkWell(
-                                      onTap: () {
-                                        // Implementasi navigasi untuk melihat detail foto galeri
-                                      },
-                                      child: Text(
-                                        'Lihat foto lainnya',
-                                        style: TextStyle(
-                                          color: Colors.blue,
-                                          decoration: TextDecoration.underline,
+                                        child: Text(
+                                          'Lihat foto lainnya',
+                                          style: TextStyle(
+                                            color: Colors.blue,
+                                            decoration: TextDecoration.underline,
+                                          ),
                                         ),
                                       ),
-                                    ),
                                   ],
                                 ),
                               ),
